@@ -42,7 +42,7 @@
 
 #include "perf_util.h"
 
-#define SMPL_PERIOD	240000000ULL
+#define SMPL_PERIOD	24000ULL
 
 #define MAX_PATH	1024
 #ifndef STR
@@ -74,7 +74,7 @@ static struct option the_options[]={
 	{ 0, 0, 0, 0}
 };
 
-static const char *gen_events = "cycles,instructions";
+static const char *gen_events = "cycles:u,instructions:u";
 
 static void
 process_smpl_buf(perf_event_desc_t *hw)
@@ -126,6 +126,7 @@ setup_cpu(int cpu, int fd)
 	if (ret || !num_fds)
 		errx(1, "cannot setup event list");
 
+	fds[0].hw.sample_period = SMPL_PERIOD;
 	if (!fds[0].hw.sample_period)
 		errx(1, "need to set sampling period or freq on first event, use :period= or :freq=");
 

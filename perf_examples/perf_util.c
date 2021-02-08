@@ -28,6 +28,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <err.h>
+#include <pthread.h>
 
 #include <perfmon/pfmlib_perf_event.h>
 #include "perf_util.h"
@@ -81,18 +82,19 @@ perf_setup_argv_events(const char **argv, perf_event_desc_t **fds, int *num_fds)
 			/* update max size */
 			fd[0].max_fds = max_fds;
 		}
+		memset(&fd[num].hw, 0, sizeof(fd[num].hw));
 		/* ABI compatibility, set before calling libpfm */
 		fd[num].hw.size = sizeof(fd[num].hw);
 
 		memset(&arg, 0, sizeof(arg));
 		arg.attr = &fd[num].hw;
 		arg.fstr = &fd[num].fstr; /* fd[].fstr is NULL */
-
-		ret = pfm_get_os_event_encoding(*argv, PFM_PLM0|PFM_PLM3, PFM_OS_PERF_EVENT_EXT, &arg);
+		ret = pfm_get_os_event_encoding(*argv, PFM_PLM0|PFM_PLM3, PFM_OS_PERF_EVENT, &arg);
 		if (ret != PFM_SUCCESS) {
 			warnx("event %s: %s", *argv, pfm_strerror(ret));
 			goto error;
-		}
+		} 
+		printf("pfm_get_os_event_encoding %s\n", *argv);
 
 		fd[num].name = strdup(*argv);
 		fd[num].group_leader = group_leader;

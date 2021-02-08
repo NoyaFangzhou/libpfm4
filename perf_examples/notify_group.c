@@ -145,8 +145,7 @@ main(int argc, char **argv)
  	 * allocates fd for us
  	 */
 	ret = perf_setup_list_events("cycles:u,"
-				       "instructions:u,"
-					"cycles:u",
+				       "instructions:u,",
 				        &fds, &num_fds);
 	if (ret || !num_fds)
 		exit(1);
