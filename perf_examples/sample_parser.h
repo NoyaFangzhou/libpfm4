@@ -5,7 +5,7 @@
 #include <perfmon/pfmlib_perf_event.h>
 
 
-typedef struct {
+typedef struct __attribute__ ((__packed__)) {
 	uint64_t	ip;						// IP of the sampled instruction
 	uint64_t	addr;					// Addr of the sampled instruction
 	uint64_t	weight;					// a 64-bit value provided by the hardware is recorded that indicates how costly the event was.
@@ -27,6 +27,7 @@ typedef struct {
 	union perf_mem_data_src data_src;	// a  64-bit value is recorded that is made up of the following fields: 
 } sample_t;
 
+void read_sample_data(perf_event_mmap_page *metadata, void * buff, size_t * sample_size);
 void display_sample_data(sample_t * sample);
 
 #endif

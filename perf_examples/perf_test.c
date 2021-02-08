@@ -44,7 +44,7 @@
 
 #define MAX_GROUPS	256
 #define MAX_CPUS	64
-#define SMPL_PERIOD	1000ULL
+#define SMPL_PERIOD	10000ULL
 
 typedef struct {
 	const char *events[MAX_GROUPS];
@@ -63,32 +63,41 @@ static void
 sigio_handler(int n, siginfo_t *info, struct sigcontext *sc)
 {
 	printf("sigio received\n");
-	struct perf_event_header ehdr;
+	struct perf_event_header * ehdr;
+	struct perf_event_desc_t * hw;
+	void * buf;
+	size_t buff_sz;
 	int id, ret;
 	
 	id = perf_fd2event(fds, num_fds, info->si_fd);
 	if (id == -1)
 		errx(1, "cannot find event for descriptor %d", info->si_fd);
-
-	ret = perf_read_buffer(fds+id, &ehdr, sizeof(ehdr));
-	if (ret)
+	hw = (struct perf_event_desc_t *)fds+id;
+	read_sample_data(hw->buf, buf, &buff_sz);
+	ehdr = (struct perf_event_header *)buf;
+	if (!ehdr)
 		errx(1, "cannot read event header");
 
-	if (ehdr.type != PERF_RECORD_SAMPLE) {
-		warnx("unknown event type %d, skipping", ehdr.type);
-		perf_skip_buffer(fds+id, ehdr.size - sizeof(ehdr));
-		goto skip;
+	// drain the sampling buffer
+	int ehdr_offset = 0;
+	while (ehdr < buff_sz) {
+		if (ehdr->type == PERF_RECORD_SAMPLE) {
+			sample_t *sample = (sample_t *)((char *)(ehdr) + 8);
+		} else {
+			warnx("unknown event type %d, skipping", ehdr.type);
+		}
+		ehdr_offset += ehdr->size;
+		ehdr = (struct perf_event_header *)((char *)buf+ehdr_offset);
+		display_sample_data(sample);
 	}
-	sample_t *sample = (sample_t *)((char *)(&ehdr) + 8);
 	notification_received++;
-	display_sample_data(sample);
-	ret = perf_display_sample(fds, num_fds, 0, &ehdr, stdout);
+	// ret = perf_display_sample(fds, num_fds, 0, &ehdr, stdout);
 
 skip:
 	/*
  	 * rearm the counter for one more shot
  	 */
-	ret = ioctl(info->si_fd, PERF_EVENT_IOC_REFRESH, 1);
+	ret = ioctl(info->si_fd, PERF_EVENT_IOC_REFRESH, SMPL_PERIOD);
 	if (ret == -1)
 		err(1, "cannot refresh");
 
@@ -270,7 +279,7 @@ main(int argc, char **argv)
 		fds[i].hw.wakeup_events = 1;
 		fds[i].hw.enable_on_exec = 1;
 		fds[i].hw.exclude_kernel = 1;
-		fds[i].hw.sample_type = PERF_SAMPLE_IP|PERF_SAMPLE_ADDR|PERF_SAMPLE_DATA_SRC;
+		fds[i].hw.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_ADDR | PERF_SAMPLE_WEIGHT | PERF_SAMPLE_DATA_SRC;
 		fds[i].hw.sample_period = SMPL_PERIOD;
 
 		fds[i].fd = perf_event_open(&fds[i].hw, options.pid, -1, fds[0].fd, 0);

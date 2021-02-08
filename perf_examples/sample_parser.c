@@ -261,3 +261,43 @@ void display_sample_data(sample_t * sample)
  //    total_count++;
     printf("pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 "\n", sample->ip, sample->addr, get_data_src_level(sample->data_src), sample->weight);
 }
+
+/**
+ * The sample is composed by 2 part, 1 page metadata + 2^n length ring buffer
+ * First we need to know the size of this sample by parsing the field in the 
+ * metadata field, then we need to parse the data region
+ * @param metadata [description]
+ */
+void read_sample_data(perf_event_mmap_page *metadata, void * buff, size_t * sample_size)
+{
+	// parse the metadata
+	uint64_t head, tail;
+	head = metadata->data_head;
+	rmb(); // told the compiler not reorder these two instructions
+	tail = metadata->data_tail;
+
+	if (head > tail) {
+		*sample_size = head - tail;
+	} else {
+		*sample_size = (metadata->data_size - tail) + head;
+	}
+
+	// parse the data region
+	buff = (void *)malloc(*sample_size);
+	uint8_t * data_start_addr = (uint8_t *)metadata;
+	/* 
+		Here we assume Linux kernel version >= 4.1.0, data_offset is available on if kernel version >= 4.1.0. Otherwise, this will raise an compilation error
+
+		For kernel version less than 4.1.0, use the following code 
+		data_start_addr += (size_t)sysconf(_SC_PAGESIZE);
+	*/
+	data_start_addr += metadata->data_offset;
+
+	if (head > tail) {
+		memcpy(buff, data_start_addr+tail, *sample_size);
+	} else {
+		memcpy(buff, data_start_addr+tail, (metadata->data_size - tail));
+		memcpy((char*)buf + (metadata->data_size - tail), data_start_addr, head);
+	}
+	metadata->data_tail = head;
+}
