@@ -68,6 +68,7 @@ void build_page_region();
 /* collect sampling stat */
 int collect_sampling_stat(int fd, struct ListNode * root_msb);
 
+<<<<<<< HEAD
 /* display method */
 void dump_addresses();
 void dump_memory_region();
@@ -76,5 +77,9 @@ void dump_all_samples(int fd, struct ListNode * root_msb);
 void dump_sample_statistics();
 /* cleanup */
 void clean_up_sample_parser(struct ListNode * root_msb);
+=======
+void read_sample_data(perf_event_mmap_page *metadata, void * buff, size_t * sample_size);
+void display_sample_data(sample_t * sample);
+>>>>>>> 2df1a3f021022621c6ece4cd5a72c09b549f4f36
 
 #endif

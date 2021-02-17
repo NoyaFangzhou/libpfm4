@@ -46,7 +46,7 @@
 
 #define MAX_GROUPS	256
 #define MAX_CPUS	64
-#define SMPL_PERIOD	1000ULL
+#define SMPL_PERIOD	10000ULL
 
 
 typedef struct {
@@ -92,7 +92,7 @@ sigio_handler(int n, siginfo_t *info, struct sigcontext *sc)
 		// can print msb. It stores all samples
 		pthread_mutex_unlock(&msb_lock);
 		// printf("Notification:%lu ", notification_received);
-	#if 0
+#if 0
 		ret = perf_read_buffer(fds+id, &ehdr, sizeof(ehdr));
 		if (ret)
 			errx(1, "cannot read event header");
@@ -104,7 +104,7 @@ sigio_handler(int n, siginfo_t *info, struct sigcontext *sc)
 		}
 		
 		ret = perf_display_sample(fds, num_fds, 0, &ehdr, stdout);
-	#endif
+#endif
 		/*
 		 * increment our notification counter
 		 */
@@ -304,8 +304,9 @@ main(int argc, char **argv)
 		/* want a notification for every each added to the buffer */
 		fds[i].hw.disabled = !i;
 		fds[i].hw.wakeup_events = 1;
-		// fds[i].hw.enable_on_exec = 1;
-		fds[i].hw.sample_type = PERF_SAMPLE_IP|PERF_SAMPLE_ADDR|PERF_SAMPLE_WEIGHT|PERF_SAMPLE_DATA_SRC;
+		fds[i].hw.enable_on_exec = 1;
+		fds[i].hw.exclude_kernel = 1;
+		fds[i].hw.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_ADDR | PERF_SAMPLE_WEIGHT | PERF_SAMPLE_DATA_SRC;
 		fds[i].hw.sample_period = SMPL_PERIOD;
 		fds[i].hw.exclude_kernel = 1;
 		fds[i].hw.exclude_hv = 1;
