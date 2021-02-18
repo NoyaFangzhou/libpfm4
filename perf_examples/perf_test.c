@@ -46,7 +46,7 @@
 
 #define MAX_GROUPS	256
 #define MAX_CPUS	64
-#define SMPL_PERIOD	10000ULL
+#define SMPL_PERIOD	1000ULL
 
 
 typedef struct {
@@ -496,17 +496,18 @@ main(int argc, char **argv)
 	// busyloop();
 	while(waitpid(pid, &status, WNOHANG) == 0);
 
+	/* Stop perf sampling */
 	for (i = 0; i < num_fds; i++) {
 		ret = ioctl(fds[i].fd, PERF_EVENT_IOC_DISABLE, 1);
 		if (ret == -1)
 			errx(1, "cannot disable fd[%d]", i);
 	}
 
-// error:
-	// while(waitpid(pid, &status, WNOHANG) == 0);
 	for (i = 0; i < num_fds; i++) {
 		// dump_all_samples(fds[i].fd, root_msb);
-		collect_sampling_stat(fds[i].fd, root_msb);
+		ret = collect_sampling_stat(fds[i].fd, root_msb);
+		if (ret < 0)
+			errx(1, "collect sampling for fd %d failed\n", fds[i].fd);
 	}
 	dump_memory_region();
 	dump_sample_statistics();

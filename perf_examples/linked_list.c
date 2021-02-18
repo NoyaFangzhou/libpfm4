@@ -7,9 +7,14 @@
 
 #include "linked_list.h"
 
-/* helper function used to sort linked list */
-struct ListNode * sorted_merge(struct ListNode * a, struct ListNode * b, int (*comp)(void *, void *));
-void front_back_split(struct ListNode * source, struct ListNode ** frontRef, struct ListNode ** backRef);
+struct ListNode* quickSortRecur(struct ListNode* head,
+                            struct ListNode* end,
+                            int (*comp)(struct ListNode *, struct ListNode *));
+struct ListNode* partition(struct ListNode* head, struct ListNode* end,
+                       struct ListNode** newHead,
+                       struct ListNode** newEnd, 
+                       int (*comp)(struct ListNode *, struct ListNode *));
+struct ListNode* getTail(struct ListNode* cur);
 
 struct ListNode * list_create(void)
 {
@@ -26,7 +31,7 @@ struct ListNode * list_node_create(void * val, size_t sz)
     if (node) {
         node->val = malloc(sz);
         node->next = NULL;
-        unsigned long i;
+        uint64_t i;
         for (i = 0UL; i < sz; i++) {
             *(char *)(node->val + i) = *(char *)(val + i);
         }
@@ -41,6 +46,10 @@ void list_put(struct ListNode ** headRef, void * val, size_t sz)
     if (!*headRef) {
         *headRef = list_node_create(val, sz);
     } else {
+//        struct ListNode * tmp_header = *headRef;
+//        while (tmp_header->next != NULL) {
+//            tmp_header = tmp_header->next;
+//        }
         struct ListNode * node = list_node_create(val, sz);
         node->next = *headRef;
         *headRef = node;
@@ -72,7 +81,7 @@ size_t list_length(struct ListNode * head)
 
 void list_dump(struct ListNode * head, void(*print)(struct ListNode *) )
 {
-    if (head)
+    if (head == NULL)
         printf("The given linked list is empty\n");
     struct ListNode * tmp_header = head;
     while (tmp_header) {
@@ -85,93 +94,111 @@ void list_dump(struct ListNode * head, void(*print)(struct ListNode *) )
     printf("\n");
 }
 
-/* sorts the linked list by changing next pointers (not data) */
-void list_sort(struct ListNode ** headRef, size_t sz, int (*comp)(void *, void *))
+/*
+    sorts the linked list by changing next pointers (not data)
+    comp()
+    a->val < b->val : return 1;
+    a->val == b->val: return 0;
+    a->val > b->val : return -1;
+ */
+void list_sort(struct ListNode ** headRef, size_t sz, int (*comp)(struct ListNode *, struct ListNode *))
 {
-    struct ListNode * head = *headRef;
-    struct ListNode * a;
-    struct ListNode * b;
-  
-    /* Base case -- length 0 or 1 */
-    if ((head == NULL) || (head->next == NULL)) {
-        return;
-    }
-  
-    /* Split head into 'a' and 'b' sublists */
-    front_back_split(head, &a, &b);
-    // printf("front_back_split()\n");
-  
-    /* Recursively sort the sublists */
-    list_sort(&a, sz, comp);
-    // printf("sort sub list a (%zu)\n", list_length(a));
-    list_sort(&b, sz, comp);
-    // printf("sort sub list b (%zu)\n", list_length(b));
-  
-    /* answer = merge the two sorted lists together */
-    *headRef = sorted_merge(a, b, comp);
-    // printf("sorted_merge a, b (%zu)\n", list_length(*headRef));
+    // The main function for quick sort. This is a wrapper over
+    // recursive function quickSortRecur()
+    (*headRef) = quickSortRecur(*headRef, getTail(*headRef), comp);
 }
-  
-/* See https:// www.geeksforgeeks.org/?p=3622 for details of this
-function */
-// comp
-// a < b : return 1;
-// a == b: return 0;
-// a > b : return -1;
-struct ListNode * sorted_merge(struct ListNode * a, struct ListNode * b, int (*comp)(void *, void *))
-{
-    printf("begin sorted_merge\n");
-    struct ListNode * result = NULL;
-  
-    /* Base cases */
-    if (a == NULL) {
-        printf("a is NULL, append b to the rest\n");
-        return b;
-    } else if (b == NULL) {
-        printf("b is NULL, append a to the rest\n");
-        return a;
-    }
-    printf("begin compare a->val and b->val \n");
-    /* Pick either a or b, and recur */
-    if (comp(a->val, b->val) >= 0) {
-        result = a;
-        printf("a(%zu) <= b(%zu), append a node to result\n", list_length(a), list_length(b));
 
-        result->next = sorted_merge(a->next, b, comp);
-    } else {
-        result = b;
-        printf("a(%zu) > b(%zu), append b node to result\n", list_length(a), list_length(b));
-        result->next = sorted_merge(a, b->next, comp);
-    }
-    printf("finish sorted_merge\n");
-    return result;
-}
-  
-/* UTILITY FUNCTIONS */
-/* Split the nodes of the given list into front and back halves,
-    and return the two lists using the reference parameters.
-    If the length is odd, the extra node should go in the front list.
-    Uses the fast/slow pointer strategy. */
-void front_back_split(struct ListNode * source,
-                     struct ListNode ** frontRef, struct ListNode ** backRef)
+// Returns the last node of the list
+struct ListNode* getTail(struct ListNode* cur)
 {
-    struct ListNode * fast;
-    struct ListNode * slow;
-    slow = source;
-    fast = source->next;
-  
-    /* Advance 'fast' two nodes, and advance 'slow' one node */
-    while (fast != NULL) {
-        fast = fast->next;
-        if (fast != NULL) {
-            slow = slow->next;
-            fast = fast->next;
+    while (cur != NULL && cur->next != NULL)
+        cur = cur->next;
+    return cur;
+}
+ 
+// Partitions the list taking the last element as the pivot
+struct ListNode* partition(struct ListNode* head, struct ListNode* end,
+                       struct ListNode** newHead,
+                       struct ListNode** newEnd,
+                       int (*comp)(struct ListNode *, struct ListNode *))
+{
+    struct ListNode* pivot = end;
+    struct ListNode *prev = NULL, *cur = head, *tail = pivot;
+ 
+    // During partition, both the head and end of the list
+    // might change which is updated in the newHead and
+    // newEnd variables
+    while (cur != pivot) {
+        if (comp(cur, pivot) >= 0) {
+            // First node that has a value less than the
+            // pivot - becomes the new head
+            if ((*newHead) == NULL)
+                (*newHead) = cur;
+ 
+            prev = cur;
+            cur = cur->next;
+        }
+        else // If cur node is greater than pivot
+        {
+            // Move cur node to next of tail, and change
+            // tail
+            if (prev)
+                prev->next = cur->next;
+            struct ListNode* tmp = cur->next;
+            cur->next = NULL;
+            tail->next = cur;
+            tail = cur;
+            cur = tmp;
         }
     }
-  
-    /* 'slow' is before the midpoint in the list, so split it in two
-    at that point. */
-    *frontRef = source;
-    *backRef = slow->next;
-    slow->next = NULL;
+ 
+    // If the pivot data is the smallest element in the
+    // current list, pivot becomes the head
+    if ((*newHead) == NULL)
+        (*newHead) = pivot;
+ 
+    // Update newEnd to the current last node
+    (*newEnd) = tail;
+ 
+    // Return the pivot node
+    return pivot;
+}
+ 
+// here the sorting happens exclusive of the end node
+struct ListNode* quickSortRecur(struct ListNode* head,
+                            struct ListNode* end,
+                            int (*comp)(struct ListNode *, struct ListNode *))
+{
+    // base condition
+    if (!head || head == end)
+        return head;
+ 
+    struct ListNode *newHead = NULL, *newEnd = NULL;
+ 
+    // Partition the list, newHead and newEnd will be
+    // updated by the partition function
+    struct ListNode* pivot = partition(head, end, &newHead, &newEnd, comp);
+ 
+    // If pivot is the smallest element - no need to recur
+    // for the left part.
+    if (newHead != pivot) {
+        // Set the node before the pivot node as NULL
+        struct ListNode* tmp = newHead;
+        while (tmp->next != pivot)
+            tmp = tmp->next;
+        tmp->next = NULL;
+ 
+        // Recur for the list before pivot
+        newHead = quickSortRecur(newHead, tmp, comp);
+ 
+        // Change next of last node of the left half to
+        // pivot
+        tmp = getTail(newHead);
+        tmp->next = pivot;
+    }
+ 
+    // Recur for the list after the pivot element
+    pivot->next = quickSortRecur(pivot->next, newEnd, comp);
+ 
+    return newHead;
 }

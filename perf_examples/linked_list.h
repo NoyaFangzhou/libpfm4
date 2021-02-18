@@ -10,8 +10,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <inttypes.h>
-#include <sys/types.h>
+#include <stdint.h>
 #include <err.h>
 
 struct ListNode {
@@ -23,7 +22,7 @@ struct ListNode * list_create(void);
 struct ListNode * list_node_create(void * val, size_t sz);
 void list_put(struct ListNode ** headRef, void * val, size_t sz);
 void list_destroy(struct ListNode ** headRef, void (*clean_up)(struct ListNode *));
-void list_sort(struct ListNode ** headRef, size_t sz, int (*comp)(void *, void *));
+void list_sort(struct ListNode ** headRef, size_t sz, int (*comp)(struct ListNode *, struct ListNode *));
 
 size_t list_length(struct ListNode * head);
 void list_dump(struct ListNode * headRef, void(*print)(struct ListNode *) );

@@ -11,7 +11,7 @@ struct ListNode * root_region;
 void dump_single_msb(struct ListNode * node);
 void dump_single_address(struct ListNode * node);
 void dump_single_region(struct ListNode * node);
-int address_comp(void * a, void * b);
+int address_comp(struct ListNode * a, struct ListNode * b);
 void clean_msb(struct ListNode * node);
 void clean_address(struct ListNode * node);
 void clean_region(struct ListNode * node);
@@ -65,8 +65,8 @@ void dump_single_msb(struct ListNode * node)
 void dump_single_address(struct ListNode * node)
 {
 	if (node->val != NULL) {
-        uint64_t val = *((uint64_t *)(node->val));
-        printf("%lu", val);
+	    uint64_t val = *((uint64_t *)(node->val));
+	    printf("%lu", val);
     }
 }
 
@@ -79,22 +79,43 @@ void dump_single_region(struct ListNode * node)
 }
 
 // value compare
-int address_comp(void * a, void * b)
+int address_comp(struct ListNode * a, struct ListNode * b)
 {
-	printf("begin address_comp()\n");
-	if (a != NULL && b != NULL) {
-		uint64_t a_val = *((uint64_t *)a);
-	    uint64_t b_val = *((uint64_t *)b);
-	    printf("compare %lu vs. %lu\n", a_val, b_val);
+	uint64_t a_val = *((uint64_t *)a->val);
+    uint64_t b_val = *((uint64_t *)b->val);
+    if (a_val > b_val) {
+        return -1;
+    } else if (a_val == b_val) {
+        return 0;
+    }
+    return 1;
+ #if 0
+	// printf("begin address_comp()\n");
+	if (a != NULL && b != NULL && a->val != NULL && b->val != NULL) {
+		// printf("compare a and b\n");
+		uint64_t a_val = *((uint64_t *)a->val);
+	    uint64_t b_val = *((uint64_t *)b->val);
+	    // printf("a->val = %lu, b->val = %lu\n", a_val, b_val);
 	    if (a_val > b_val) {
 	        return -1;
 	    } else if (a_val == b_val) {
 	        return 0;
 	    }
 	    return 1;
+	} else if (a != NULL && a->val != NULL) {
+		// printf("only a\n");
+		// uint64_t a_val = *((uint64_t *)a->val);
+		// printf("a->val = %lu\n", a_val);
+		return -1;
+	} else if (b != NULL && b->val != NULL) {
+		// printf("only b\n");
+		// uint64_t b_val = *((uint64_t *)b->val);
+		// printf("b->val = %lu\n", b_val);
+		return 1;
 	}
-	printf("finish address_comp()\n");
+	// printf("finish address_comp()\n");
     return 0;
+#endif
 }
 
 // value clean
@@ -476,6 +497,7 @@ int handler_read_ring_buffer(struct perf_event_mmap_page *metadata_page, struct 
 int collect_sampling_stat(int fd, struct ListNode * root_msb)
 {
 	struct ListNode * tmp_header = root_msb;
+	printf("There are total %zu msbs\n", list_length(root_msb));
 	uint64_t sample_id = 0UL, sample_count = 0UL;
 	while (tmp_header != NULL) {
 		if (tmp_header->val == NULL) {
@@ -497,7 +519,8 @@ int collect_sampling_stat(int fd, struct ListNode * root_msb)
 					if (header -> type == PERF_RECORD_SAMPLE) {
 						struct sample_t *sample = (struct sample_t *)((char *)(header) + 8);
 						// append this address to the linked list
-						list_put(&root_address, (void *)&(sample->addr), sizeof(uint64_t));
+						uint64_t page_address = (sample->addr & PAGEMSK);
+						list_put(&root_address, (void *)&page_address, sizeof(uint64_t));
 						if (is_served_by_local_NA_miss(sample->data_src)) {
 							stat->na_miss_count++;
 						}
@@ -547,8 +570,8 @@ error:
 void build_page_region()
 {
     // sort all address
+    printf("Total %zu addresses\n", list_length(root_address));
     list_sort(&root_address, sizeof(uint64_t), address_comp);
-    dump_addresses();
     struct ListNode * curr_address = root_address;
     uint64_t prev_addr = 0UL;
     uint64_t low = 0UL, high = 0UL;
