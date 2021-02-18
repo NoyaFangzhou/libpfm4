@@ -90,7 +90,11 @@ sigio_handler(int n, siginfo_t *info, struct sigcontext *sc)
 		pthread_mutex_lock(&msb_lock);
 		list_put(&root_msb, (void *)new_msb, sizeof(struct mem_sampling_backed));
 		// can print msb. It stores all samples
+		ret = read_sample_data(fds[id], new_msb);
+		if (ret < 0)
+			fprintf(stderr, "read samples failed\n");
 		pthread_mutex_unlock(&msb_lock);
+
 		// printf("Notification:%lu ", notification_received);
 #if 0
 		ret = perf_read_buffer(fds+id, &ehdr, sizeof(ehdr));
@@ -302,6 +306,7 @@ main(int argc, char **argv)
 	for(i=0; i < num_fds; i++) {
 
 		/* want a notification for every each added to the buffer */
+		fds[i].pid = pid;
 		fds[i].hw.disabled = !i;
 		fds[i].hw.wakeup_events = 1;
 		fds[i].hw.enable_on_exec = 1;
@@ -505,11 +510,11 @@ main(int argc, char **argv)
 
 	for (i = 0; i < num_fds; i++) {
 		// dump_all_samples(fds[i].fd, root_msb);
-		ret = collect_sampling_stat(fds[i].fd, root_msb);
+		ret = collect_sampling_stat(fds[i], root_msb);
 		if (ret < 0)
 			errx(1, "collect sampling for fd %d failed\n", fds[i].fd);
 	}
-	dump_memory_region();
+	// dump_memory_region();
 	dump_sample_statistics();
 	clean_up_sample_parser(root_msb);
 	/*

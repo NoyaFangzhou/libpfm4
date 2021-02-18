@@ -65,7 +65,7 @@ void dump_single_msb(struct ListNode * node)
 void dump_single_address(struct ListNode * node)
 {
 	if (node->val != NULL) {
-	    uint64_t val = *((uint64_t *)(node->val));
+	    unsigned long val = *((unsigned long *)(node->val));
 	    printf("%lu", val);
     }
 }
@@ -81,8 +81,8 @@ void dump_single_region(struct ListNode * node)
 // value compare
 int address_comp(struct ListNode * a, struct ListNode * b)
 {
-	uint64_t a_val = *((uint64_t *)a->val);
-    uint64_t b_val = *((uint64_t *)b->val);
+	unsigned long a_val = *((unsigned long *)a->val);
+    unsigned long b_val = *((unsigned long *)b->val);
     if (a_val > b_val) {
         return -1;
     } else if (a_val == b_val) {
@@ -392,6 +392,44 @@ int sample_parser_init()
  * metadata field, then we need to parse the data region
  * @param metadata [description]
  */
+int read_sample_data(perf_event_desc_t desc, struct mem_sampling_backed * msb)
+{
+	struct perf_event_header *header;
+	int ret;
+	if (msb != NULL) {
+		header  = (struct perf_event_header *)(msb->buffer);
+		size_t ehdr_offset = 0;
+		if (msb->fd == desc.fd) {
+			while (ehdr_offset < msb->sz) {
+				if (header->size == 0) {
+					fprintf(stderr, "Error: invalid header size = 0\n");
+					return -1;
+				}
+				if (header -> type == PERF_RECORD_SAMPLE) {
+					struct sample_t *sample = (struct sample_t *)((char *)(header) + 8);
+					// append this address to the linked list
+					unsigned long page_address = (sample->addr & PAGEMSK);
+					ret = kernel_query_node(desc.pid, page_address);
+					if (ret < 0) {
+						fprintf(stderr, "kernel_query_node() for %lx failed\n", page_address);
+					}
+				}
+				ehdr_offset += header->size;
+				header = (struct perf_event_header *)((char*)msb->buffer+ehdr_offset);
+			}
+		} else { 
+			fprintf(stderr, "Error: file descriptor does not match\n");
+			return -1;
+		}
+	} else {
+		fprintf(stderr, "Error: given msb is NULL\n");
+		return -1;
+	}
+	return 0;
+
+
+}
+#if 0
 int read_sample_data(struct perf_event_mmap_page *metadata, void * buff, size_t * sample_size)
 {
 	// parse the metadata
@@ -430,6 +468,7 @@ int read_sample_data(struct perf_event_mmap_page *metadata, void * buff, size_t 
 	metadata->data_tail = head;
 	return 0;
 }
+#endif
 
 
 void clean_up_sample_parser(struct ListNode * root_msb)
@@ -494,7 +533,7 @@ int handler_read_ring_buffer(struct perf_event_mmap_page *metadata_page, struct 
 	return 0;
 }
 
-int collect_sampling_stat(int fd, struct ListNode * root_msb)
+int collect_sampling_stat(perf_event_desc_t desc, struct ListNode * root_msb)
 {
 	struct ListNode * tmp_header = root_msb;
 	printf("There are total %zu msbs\n", list_length(root_msb));
@@ -509,7 +548,7 @@ int collect_sampling_stat(int fd, struct ListNode * root_msb)
 		if (msb != NULL) {
 			header  = (struct perf_event_header *)(msb->buffer);
 			size_t ehdr_offset = 0;
-			if (msb->fd == fd) {
+			if (msb->fd == desc.fd) {
 				sample_count = 0UL; // reset the counter
 				while (ehdr_offset < msb->sz) {
 					if (header->size == 0) {
@@ -519,7 +558,7 @@ int collect_sampling_stat(int fd, struct ListNode * root_msb)
 					if (header -> type == PERF_RECORD_SAMPLE) {
 						struct sample_t *sample = (struct sample_t *)((char *)(header) + 8);
 						// append this address to the linked list
-						uint64_t page_address = (sample->addr & PAGEMSK);
+						unsigned long page_address = (sample->addr & PAGEMSK);
 						list_put(&root_address, (void *)&page_address, sizeof(uint64_t));
 						if (is_served_by_local_NA_miss(sample->data_src)) {
 							stat->na_miss_count++;
@@ -571,12 +610,12 @@ void build_page_region()
 {
     // sort all address
     printf("Total %zu addresses\n", list_length(root_address));
-    list_sort(&root_address, sizeof(uint64_t), address_comp);
+    list_sort(&root_address, sizeof(unsigned long), address_comp);
     struct ListNode * curr_address = root_address;
-    uint64_t prev_addr = 0UL;
-    uint64_t low = 0UL, high = 0UL;
+    unsigned long prev_addr = 0UL;
+    unsigned long low = 0UL, high = 0UL;
     while (curr_address) {
-    	uint64_t addr_val = *((uint64_t *)curr_address->val);
+    	unsigned long addr_val = *((unsigned long *)curr_address->val);
         if (prev_addr == 0UL) {
             low = addr_val;
             high = addr_val;

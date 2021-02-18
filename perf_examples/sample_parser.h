@@ -3,10 +3,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
-#include <linux/kernel.h> 
+#include <unistd.h>
+#include <linux/kernel.h>
 #include <perfmon/pfmlib_perf_event.h>
 
 #include "perf_util.h"
+#include "kernel_util.h"
 #include "linked_list.h"
 
 #define MEMORY_LOAD_EVENT		"MEM_TRANS_RETIRED:LOAD_LATENCY:ldlat=3"
@@ -17,7 +19,7 @@
 
 struct __attribute__ ((__packed__)) sample_t {
 	uint64_t	ip;						// IP of the sampled instruction
-	uint64_t	addr;					// Addr of the sampled instruction
+	unsigned long	addr;				// Addr of the sampled instruction
 	uint64_t	weight;					// a 64-bit value provided by the hardware is recorded that indicates how costly the event was.
 	/*
 		struct of perf_mem_data_src union 
@@ -44,8 +46,8 @@ struct mem_sampling_backed {
 };
 
 struct address_region {
-	uint64_t addr_start;
-	uint64_t addr_end;
+	unsigned long addr_start;
+	unsigned long addr_end;
 };
 
 struct mem_sampling_stat {
@@ -63,11 +65,11 @@ struct mem_sampling_stat {
 
 int sample_parser_init();
 int handler_read_ring_buffer(struct perf_event_mmap_page *metadata_page, struct mem_sampling_backed *new_msb);
-int read_sample_data(struct perf_event_mmap_page *metadata, void * buff, size_t * sample_size);
 /* build memory regions */
 void build_page_region();
 /* collect sampling stat */
-int collect_sampling_stat(int fd, struct ListNode * root_msb);
+int read_sample_data(perf_event_desc_t desc, struct mem_sampling_backed * msb);
+int collect_sampling_stat(perf_event_desc_t fd, struct ListNode * root_msb);
 
 /* display method */
 void dump_addresses();

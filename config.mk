@@ -188,7 +188,7 @@ endif
 # or GNU C
 #CC=icc
 CC?=gcc
-LIBS=
+LIBS=-lnuma
 INSTALL=install
 LDCONFIG=ldconfig
 LN?=ln -sf

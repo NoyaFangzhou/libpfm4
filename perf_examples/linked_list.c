@@ -202,3 +202,93 @@ struct ListNode* quickSortRecur(struct ListNode* head,
  
     return newHead;
 }
+
+void list_iterate(struct ListNode * head, void (*func)(struct ListNode *))
+{
+    struct ListNode * tmp_header = head;
+    while (tmp_header != NULL) {
+        func(tmp_header);
+        tmp_header = tmp_header->next;
+    }
+}
+
+void list_map(struct ListNode * head, void (*func)(struct ListNode *))
+{
+    struct ListNode * tmp_header = head;
+    while (tmp_header != NULL) {
+        func(tmp_header);
+        tmp_header = tmp_header->next;
+    }
+}
+
+void list_filter(struct ListNode ** headRef, int (*cond)(struct ListNode *))
+{
+    struct ListNode * tmp_header = *headRef;
+    struct ListNode * curr = NULL, * new_head = NULL;
+    while (tmp_header != NULL) {
+        // meet the condition
+        if (cond(tmp_header) > 0) {
+            if (curr) {
+                curr->next = tmp_header;
+                curr = curr->next;
+            } else {
+                curr = tmp_header;
+                new_head = tmp_header;
+            }
+        }
+        tmp_header = tmp_header->next;
+    }
+    curr->next = NULL; // break the linked list append at the last node
+    *headRef = new_head;
+}
+
+void list_delete_by_idx(struct ListNode ** headRef, uint64_t idx)
+{
+    if (list_length(*headRef) == 0) {
+        printf("Given linked list is empty, cannot remove any element");
+        return;
+    }
+    if (idx != 0UL && list_length(*headRef) < (idx - 1)) {
+        printf("Given index is out of boundary. Want to remove node at index %lu, but length is %zu", idx, list_length(*headRef));
+        return;
+    }
+    // remove the first element
+    if (idx == 0UL) {
+        *headRef = (*headRef)->next;
+        return;
+    }
+    uint64_t i = 1UL;
+    struct ListNode * prev = *headRef, * current = (*headRef)->next;
+    while (current) {
+        if (i == idx) {
+            prev->next = current->next;
+            break;
+        }
+        prev = current;
+        current = current->next;
+        i += 1;
+    }
+    
+}
+
+uint64_t list_delete_by_val(struct ListNode ** headRef, void * val, int (*comp)(void *, void *))
+{
+    uint64_t remove_count = 0UL;
+    struct ListNode * prev = NULL, * current = *headRef;
+    while (current) {
+        if (comp(val, current->val) == 0) {
+            if (prev == NULL) {
+                *headRef = (*headRef)->next;
+                current = *headRef;
+            } else {
+                prev->next = current->next;
+                remove_count += 1UL;
+                current = prev->next;
+            }
+        } else {
+            prev = current;
+            current = current->next;
+        }
+    }
+    return remove_count;
+}

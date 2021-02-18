@@ -43,8 +43,8 @@ CFLAGS+= -I. -D_GNU_SOURCE -pthread
 
 PERF_EVENT_HDR=$(TOPDIR)/include/perfmon/pfmlib_perf_event.h
 
-LPC_UTILS=perf_util.o sample_parser.o linked_list.o
-LPC_UTILS_HDR=perf_util.h sample_parser.h linked_list.h
+LPC_UTILS=perf_util.o sample_parser.o linked_list.o kernel_util.o
+LPC_UTILS_HDR=perf_util.h sample_parser.h linked_list.h kernel_util.h
 
 TARGETS+=self self_basic self_count task task_attach_timeout syst \
 	notify_self notify_group task_smpl self_smpl_multi \

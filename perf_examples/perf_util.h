@@ -43,6 +43,7 @@ typedef struct {
 	int idx; /* opaque libpfm event identifier */
 	int cpu; /* cpu to program */
 	char *fstr; /* fstr from library, must be freed */
+	pid_t pid;
 } perf_event_desc_t;
 
 /* handy shortcut */
