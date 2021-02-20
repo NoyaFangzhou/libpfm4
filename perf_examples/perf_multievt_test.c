@@ -55,6 +55,7 @@ typedef struct {
 } options_t;
 
 static volatile unsigned long notification_received;
+static uint64_t collected_samples, lost_samples;
 
 static perf_event_desc_t *fds;
 static int num_fds;
@@ -64,6 +65,44 @@ static int buffer_pages = 64; /* size of buffer payload  (must be power of 2) */
 
 struct ListNode * root_msb;
 pthread_mutex_t msb_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void
+process_smpl_buf(perf_event_desc_t *hw)
+{
+	struct perf_event_header ehdr;
+	int ret;
+
+	for(;;) {
+		ret = perf_read_buffer(hw, &ehdr, sizeof(ehdr));
+		if (ret)
+			return; /* nothing to read */
+
+		switch(ehdr.type) {
+			case PERF_RECORD_SAMPLE:
+				ret = perf_display_sample(fds, num_fds, hw - fds, &ehdr, stdout);
+				if (ret)
+					errx(1, "cannot parse sample");
+				collected_samples++;
+				break;
+			case PERF_RECORD_EXIT:
+				display_exit(hw, stdout);
+				break;
+			case PERF_RECORD_LOST:
+				lost_samples += display_lost(hw, fds, num_fds, stdout);
+				break;
+			case PERF_RECORD_THROTTLE:
+				display_freq(1, hw, stdout);
+				break;
+			case PERF_RECORD_UNTHROTTLE:
+				display_freq(0, hw, stdout);
+				break;
+			default:
+				printf("unknown sample type %d\n", ehdr.type);
+				perf_skip_buffer(hw, ehdr.size - sizeof(ehdr));
+		}
+	}
+}
+
 
 static void
 sigio_handler(int n, siginfo_t *info, struct sigcontext *sc)
@@ -77,29 +116,11 @@ sigio_handler(int n, siginfo_t *info, struct sigcontext *sc)
 		if (id == -1)
 			errx(1, "no event associated with fd=%d", info->si_fd);
 
-		struct perf_event_mmap_page * metadata_page = fds[id].buf;
-		struct mem_sampling_backed *new_msb = (struct mem_sampling_backed *) malloc(sizeof(struct mem_sampling_backed));
-		if (new_msb == NULL) {
-			errx(1, "could not malloc mem_sampling_backed\n");
-		}
-		new_msb->fd = info->si_fd;
-		ret = handler_read_ring_buffer(metadata_page, new_msb);
-		if (new_msb->buffer == NULL) {
-			errx(1, "failed to read the perf_event_mmap_page ring buffer\n");
-		}
-		pthread_mutex_lock(&msb_lock);
-		// list_put(&root_msb, (void *)new_msb, sizeof(struct mem_sampling_backed));
-		// can print msb. It stores all samples
-		ret = read_sample_data(fds[id], new_msb);
-		if (ret < 0)
-			fprintf(stderr, "read samples failed\n");
-		pthread_mutex_unlock(&msb_lock);
-
+		process_smpl_buf(&fds[id]);
 		/*
 		 * increment our notification counter
 		 */
 		notification_received++;
-	// skip:
 		/*
 	 	 * rearm the counter for one more shot
 	 	 */
@@ -175,6 +196,8 @@ main(int argc, char **argv)
 	arg = argv+optind;
 
 	struct sigaction act;
+	uint64_t *val;
+	size_t sz;
 	size_t pgsz;
 	int ret, i;
 
@@ -297,7 +320,9 @@ main(int argc, char **argv)
 		fds[i].hw.wakeup_events = 1;
 		fds[i].hw.enable_on_exec = 1;
 		fds[i].hw.exclude_kernel = 1;
-		fds[i].hw.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_ADDR | PERF_SAMPLE_WEIGHT | PERF_SAMPLE_DATA_SRC;
+		fds[i].hw.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_ADDR | PERF_SAMPLE_WEIGHT | PERF_SAMPLE_DATA_SRC | PERF_SAMPLE_READ;
+		if (num_fds > 1)
+			fds[i].hw.sample_type |= PERF_SAMPLE_IDENTIFIER;
 		fds[i].hw.sample_period = SMPL_PERIOD;
 		fds[i].hw.exclude_kernel = 1;
 		fds[i].hw.exclude_hv = 1;
@@ -308,11 +333,13 @@ main(int argc, char **argv)
 		fds[i].hw.use_clockid=1;
 		fds[i].hw.clockid = CLOCK_MONOTONIC_RAW;
 #endif
+		/* read() returns event identification for signal handler */
+		fds[i].hw.read_format = PERF_FORMAT_GROUP|PERF_FORMAT_ID|PERF_FORMAT_SCALE;
 		fds[i].fd = perf_event_open(&fds[i].hw, pid, -1, fds[0].fd, 0);
 		if (fds[i].fd == -1)
 			err(1, "cannot attach event %s", fds[i].name);
 	}
-#if 0
+
 	sz = (3+2*num_fds)*sizeof(uint64_t);
 	val = malloc(sz);
 	if (!val)
@@ -352,54 +379,79 @@ main(int argc, char **argv)
 		fds[i].id = val[2*i+1+3];
 		printf("%"PRIu64"  %s\n", fds[i].id, fds[i].name);
 	}
-#endif
 
-	for (i=0; i < num_fds; i++) {
-	 
-		fds[i].buf = mmap(NULL, (buffer_pages+1)*pgsz, PROT_READ|PROT_WRITE, MAP_SHARED, fds[i].fd, 0);
+	/*
+	 * kernel adds the header page to the size of the mmapped region
+	 */
+	fds[0].buf = mmap(NULL, (buffer_pages+1)*pgsz, PROT_READ|PROT_WRITE, MAP_SHARED, fds[0].fd, 0);
+	if (fds[0].buf == MAP_FAILED)
+		err(1, "cannot mmap buffer");
 
-		if (fds[i].buf == MAP_FAILED)
-			err(1, "cannot mmap buffer");
-		
-		fds[i].pgmsk = (buffer_pages * pgsz) - 1;
+	/* does not include header page */
+	fds[0].pgmsk = (buffer_pages * pgsz) - 1;
 
-		ret = ioctl(fds[i].fd, PERF_EVENT_IOC_RESET, 0);
-		if (ret == -1)
-			err(1, "cannot reset");
-		/*
-		 * setup asynchronous notification on the file descriptor
-		 */
-		ret = fcntl(fds[i].fd, F_SETFL, fcntl(fds[i].fd, F_GETFL, 0) | O_ASYNC);
-		if (ret == -1)
-			err(1, "cannot set ASYNC");
+	ret = ioctl(fds[0].fd, PERF_EVENT_IOC_RESET, 0);
+	if (ret == -1)
+		err(1, "cannot reset");
 
-		/*
-	 	 * necessary if we want to get the file descriptor for
-	 	 * which the SIGIO is sent in siginfo->si_fd.
-	 	 * SA_SIGINFO in itself is not enough
-	 	 */
-		ret = fcntl(fds[i].fd, F_SETSIG, SIGIO);
-		if (ret == -1)
-			err(1, "cannot setsig");
-
-		/*
-		 * get ownership of the descriptor
-		 */
-		ret = fcntl(fds[i].fd, F_SETOWN, getpid());
-		if (ret == -1)
-			err(1, "cannot setown");
-
-		/*
-		 * enable the group for one period
-		 */
-		ret = ioctl(fds[i].fd, PERF_EVENT_IOC_REFRESH , SMPL_PERIOD);
-		if (ret == -1)
-			errx(1, "cannot refresh fds[%d]", i);
-
-		ret = ioctl(fds[i].fd, PERF_EVENT_IOC_ENABLE, 0);
-		if (ret == -1)
-			errx(1, "cannot enable fds[%d]", i);
+	/*
+	 * send samples for all events to first event's buffer
+	 */
+	for (i = 1; i < num_fds; i++) {
+		if (!fds[i].hw.sample_period)
+			continue;
+		ret = ioctl(fds[i].fd, PERF_EVENT_IOC_SET_OUTPUT, fds[0].fd);
+		if (ret)
+			err(1, "cannot redirect sampling output");
 	}
+
+	/*
+	 * collect event ids
+	 */
+	if (num_fds > 1 && fds[0].fd > -1) {
+		for(i = 0; i <  num_fds; i++) {
+			/*
+			 * read the event identifier using ioctl
+			 * new method replaced the trick with PERF_FORMAT_GROUP + PERF_FORMAT_ID + read()
+			 */
+			ret = ioctl(fds[i].fd, PERF_EVENT_IOC_ID, &fds[i].id);
+			if (ret == -1)
+				err(1, "cannot read ID");
+			printf("ID %"PRIu64"  %s\n", fds[i].id, fds[i].name);
+		}
+	}
+
+	/*
+	 * setup asynchronous notification on the file descriptor
+	 */
+	ret = fcntl(fds[0].fd, F_SETFL, fcntl(fds[0].fd, F_GETFL, 0) | O_ASYNC);
+	if (ret == -1)
+		err(1, "cannot set ASYNC");
+
+	/*
+	 * necessary if we want to get the file descriptor for
+	 * which the SIGIO is sent for in siginfo->si_fd.
+	 * SA_SIGINFO in itself is not enough
+	 */
+	ret = fcntl(fds[0].fd, F_SETSIG, SIGIO);
+	if (ret == -1)
+		err(1, "cannot setsig");
+
+	/*
+	 * get ownership of the descriptor
+	 */
+	ret = fcntl(fds[0].fd, F_SETOWN, getpid());
+	if (ret == -1)
+		err(1, "cannot setown");
+
+	ret = ioctl(fds[0].fd, PERF_EVENT_IOC_REFRESH , SMPL_PERIOD);
+	if (ret == -1)
+		err(1, "cannot refresh");
+
+	ret = ioctl(fds[0].fd, PERF_EVENT_IOC_ENABLE, 0);
+	if (ret == -1)
+		errx(1, "cannot enable fds[%d]", i);
+
 
 	/* Start the child process */
 	if (go[1] > -1)
@@ -415,6 +467,11 @@ main(int argc, char **argv)
 			errx(1, "cannot disable fd[%d]", i);
 	}
 
+	/* check for partial event buffer */
+	printf("read partial event from buffer\n");
+	process_smpl_buf(&fds[0]);
+
+#if 0
 	for (i = 0; i < num_fds; i++) {
 		// dump_all_samples(fds[i].fd, root_msb);
 		ret = collect_sampling_stat(fds[i], root_msb);
@@ -423,19 +480,15 @@ main(int argc, char **argv)
 	}
 	// dump_memory_region();
 	dump_sample_statistics();
-
+#endif
 	clean_up_sample_parser(root_msb);
 	/*
 	 * destroy our session
 	 */
-	for(i=0; i < num_fds; i++) {
-		if (fds[i].fd > -1) {
+	for(i=0; i < num_fds; i++)
+		if (fds[i].fd > -1)
 			close(fds[i].fd);
-		}
-		if (fds[i].buf != NULL) {
-			munmap(fds[i].buf, (buffer_pages+1)*pgsz);
-		}
-	}
+	munmap(fds[0].buf, (buffer_pages+1)*pgsz);
 
 	perf_free_fds(fds, num_fds);
 
@@ -444,6 +497,6 @@ main(int argc, char **argv)
 
 	printf("total notification received: %lu\n", notification_received);
 
-	assert(notification_received == (uint64_t)list_length(root_msb));
+	// assert(notification_received == (uint64_t)list_length(root_msb));
 	return 0;
 }
